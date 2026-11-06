@@ -1,141 +1,113 @@
-"""Client complexity scoring.
-
-Loads client data into a DataFrame, runs each category scorer, and combines
-the results into a single complexity score.
-
-NOTE: the calculations inside each scorer are still placeholders. They will be
-replaced once the real scoring rules are decided.
-"""
-
-import argparse
-import math
-
-import pandas as pd
-
-DEFAULT_DATA_PATH = "data.csv"
+import os, sys, requests
+from dotenv import load_dotenv
 
 
-def initial_data_complexity(df: pd.DataFrame) -> float:
-    """Score how complex a dataset is.
+#Getting access to ClickUp's API
+load_dotenv()
+API = "https://api.clickup.com/api/v2"
+TOKEN = os.getenv("CLICKUP_TOKEN")
+if not TOKEN:
+    raise SystemExit("CLICKUP_TOKEN is not set - add it to your .env file")
+H = {"Authorization": TOKEN, "Content-Type": "application/json"}
 
-    Placeholder: total number of unique values across all columns.
-    """
+#Seeing what list we are working with
+SOURCE_VIEW = "8ccv77e-43891"   # view ID, from .../v/gr/8ccv77e-43891
+LIST_ID     = "901112212244"    # list ID, from .../v/l/6-901112212244-1
+DESTINATION_VIEW = "8ccv77e-43891"  # view ID, from .../v/gr/8ccv77e-43891
 
-    return float(df.nunique().sum())
+SCORE_FIELD    = "409ec9ce-c401-40f6-9ac7-aa0722ebf717"   # Total Complexity Score (formula)
+DROPDOWN_FIELD = "123cc1b6-b79e-4a1e-ba14-111333e75731"   # Client Complexity (drop_down)
 
+# Dropdown option IDs
+VERY_EASY      = "c18c0d96-1142-4b46-a5b0-dea3be63c275"
+EASY           = "f8e142d8-2eef-41d2-9e59-c3fe2418bd84"
+MODERATE       = "577a56b6-9c67-4eb0-9497-8fb06f0f9d6a"
+DIFFICULT      = "b849fbbd-7dd3-43e6-9155-1ffe90145a02"
+VERY_DIFFICULT = "d7a5cde1-dd86-44d2-8db0-50844efb902b"
 
-def size_score(df: pd.DataFrame) -> float:
-    """Score based on the amount of people (size of the data). Need to make a key that identifies the people in the data. For now, just return 0.3 times the number of rows."""
-    
-    "How the people are counted"
-    num_rows, num_cols = df.shape
-    people = 0
-    baseScore = 0.3
-        
-    return float(people * baseScore)
-
-
-def base_score(df: pd.DataFrame) -> float:
-    """Score based on the data once it is processed.
-
-    Placeholder: mean of the means of the numeric columns.
-    Returns 0 when there are no numeric columns.
-    """
-    numeric_cols = df.select_dtypes(include="number")
-    if numeric_cols.empty:
-        return 0.0
-    value = numeric_cols.mean().mean()
-    return 0.0 if math.isnan(value) else float(value)
-
-
-def manual_changes_score(df: pd.DataFrame) -> float:
-    """Score based on the amount of manual changes."""
-
-    """ The Math of this"""
-    manual_changes = input("Enter the number of manual changes made to the data: ")
-    cost = 0.5  # Placeholder cost per manual change
-    try:
-        manual_changes = int(manual_changes)
-    except ValueError:
-        print("Invalid input. Please enter a valid integer for the number of manual changes.")
-        return 0.0
-
-    return float(manual_changes * cost)
+# TODO: placeholder cutoffs - replace with the real ones.
+# (max score, option) - first row whose max >= score wins.
+CUTOFFS = [
+    (10,  VERY_EASY),
+    (25,  EASY),
+    (45,  MODERATE),
+    (70,  DIFFICULT),
+    (float("inf"), VERY_DIFFICULT),
+]
+OPTION_NAMES = {VERY_EASY: "Very Easy", EASY: "Easy", MODERATE: "Moderate",
+                DIFFICULT: "Difficult", VERY_DIFFICULT: "Very Difficult"}
 
 
-def conflict_score(df: pd.DataFrame) -> float:
-    """Score based on the amount of conflicts."""
-
-    """The Math of this"""
-
-    manual_conflicts = input("Enter the number of conflicts in the data: ")
-    cost = 30  # Conflicts per point (rounded up to the next whole number)
-    try:
-        manual_conflicts = int(manual_conflicts)
-    except ValueError:
-        print("Invalid input. Please enter a valid integer for the number of conflicts.")
-        return 0.0
-
-    return float(math.ceil(manual_conflicts / cost))
+def get_custom_fields(list_id):
+    """Return the custom fields available on a list (id, name, type)."""
+    r = requests.get(f"{API}/list/{list_id}/field", headers=H)
+    r.raise_for_status()
+    return r.json()["fields"]
 
 
-def monthly_loader_score(df: pd.DataFrame) -> float:
-    """Additional score based on the effort to load clients through the monthly loader."""
-
-    """ The Math"""
-    lastMonthsPeople = int(input("Enter the number of people loaded in the last month: "))
-    people = int(input("Enter the number of people loaded this month: "))
-    cost = 0.001
-
-    if lastMonthsPeople == 0:
-        return float(people * cost)
-    else:
-        return float((people - lastMonthsPeople) * cost)
-
-# Every category scorer, in the order it is reported.
-SCORERS = {
-    "initial_data_complexity": initial_data_complexity,
-    "size": size_score,
-    "base": base_score,
-    "manual_changes": manual_changes_score,
-    "conflicts": conflict_score,
-    "monthly_loader": monthly_loader_score,
-}
+def get_view_tasks(view_id):
+    """Return every task in a view, following pagination."""
+    tasks, page = [], 0
+    while True:
+        r = requests.get(f"{API}/view/{view_id}/task", headers=H, params={"page": page})
+        r.raise_for_status()
+        data = r.json()
+        tasks += data["tasks"]
+        if data.get("last_page", True):
+            return tasks
+        page += 1
 
 
-def load_data(path: str) -> pd.DataFrame:
-    """Load client data from a CSV file."""
-    return pd.read_csv(path)
+def field_value(task, field_id):
+    for f in task.get("custom_fields", []):
+        if f["id"] == field_id:
+            return f.get("value")
+    return None
 
 
-def score_breakdown(df: pd.DataFrame) -> dict[str, float]:
-    """Run every scorer and return each category's score."""
-    return {name: scorer(df) for name, scorer in SCORERS.items()}
+def score_to_option(score):
+    """Map a score to a dropdown option ID. Score 0 / missing -> None (leave blank)."""
+    if score in (None, ""):
+        return None
+    score = float(score)
+    if score <= 0:
+        return None
+    for max_score, option in CUTOFFS:
+        if score <= max_score:
+            return option
 
 
-def complexity_score(df: pd.DataFrame) -> float:
-    """Combine every category score into one complexity score."""
-    return sum(score_breakdown(df).values())
+def set_dropdown(task_id, option_id):
+    r = requests.post(f"{API}/task/{task_id}/field/{DROPDOWN_FIELD}",
+                      headers=H, json={"value": option_id})
+    r.raise_for_status()
 
 
-def main() -> None:
-    """What runs the whole thing."""
-    parser = argparse.ArgumentParser(description="Score client complexity.")
-    parser.add_argument(
-        "path",
-        nargs="?",
-        default=DEFAULT_DATA_PATH,
-        help=f"CSV file to score (default: {DEFAULT_DATA_PATH})",
-    )
-    args = parser.parse_args()
-
-    df = load_data(args.path)
-    breakdown = score_breakdown(df)
-
-    for name, value in breakdown.items():
-        print(f"{name:>24}: {value:,.2f}")
-    print(f"{'Complexity Score':>24}: {sum(breakdown.values()):,.2f}")
+def sync_complexity(apply=False):
+    """Set each task's Client Complexity dropdown from its Total Complexity Score.
+    apply=False is a dry run: prints what would change, writes nothing."""
+    tasks = get_view_tasks(SOURCE_VIEW)
+    changed = skipped = 0
+    for t in tasks:
+        option = score_to_option(field_value(t, SCORE_FIELD))
+        if option is None:
+            skipped += 1
+            continue
+        current = field_value(t, DROPDOWN_FIELD)
+        # ClickUp returns the dropdown's current value as the option's orderindex
+        current_id = list(OPTION_NAMES)[current] if isinstance(current, int) else current
+        if current_id == option:
+            continue
+        print(f'{"SET" if apply else "WOULD SET"}: {t["name"]} '
+              f'(score {field_value(t, SCORE_FIELD)}) -> {OPTION_NAMES[option]}')
+        if apply:
+            set_dropdown(t["id"], option)
+        changed += 1
+    print(f"\n{len(tasks)} tasks | {changed} {'updated' if apply else 'to update'} "
+          f"| {skipped} left blank (score 0)")
 
 
 if __name__ == "__main__":
-    main()
+    # python Complexity.py          -> dry run
+    # python Complexity.py --apply  -> actually write to ClickUp
+    sync_complexity(apply="--apply" in sys.argv)
