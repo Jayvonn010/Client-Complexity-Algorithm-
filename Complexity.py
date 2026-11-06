@@ -28,10 +28,10 @@ VERY_DIFFICULT = "d7a5cde1-dd86-44d2-8db0-50844efb902b"
 # TODO: placeholder cutoffs - replace with the real ones.
 # (max score, option) - first row whose max >= score wins.
 CUTOFFS = [
-    (10,  VERY_EASY),
-    (25,  EASY),
-    (45,  MODERATE),
-    (70,  DIFFICULT),
+    (20,  VERY_EASY),
+    (35,  EASY),
+    (50,  MODERATE),
+    (65,  DIFFICULT),
     (float("inf"), VERY_DIFFICULT),
 ]
 OPTION_NAMES = {VERY_EASY: "Very Easy", EASY: "Easy", MODERATE: "Moderate",
