@@ -44,7 +44,7 @@ def get_custom_fields(list_id):
     r.raise_for_status()
     return r.json()["fields"]
 
-
+# Seeing each task in the view, following pagination
 def get_view_tasks(view_id):
     """Return every task in a view, following pagination."""
     tasks, page = [], 0
@@ -57,14 +57,14 @@ def get_view_tasks(view_id):
             return tasks
         page += 1
 
-
+#Seeing the value of a custom field on a task
 def field_value(task, field_id):
     for f in task.get("custom_fields", []):
         if f["id"] == field_id:
             return f.get("value")
     return None
 
-
+#Mapping the score that we get from the formula to the dropdown option ID
 def score_to_option(score):
     """Map a score to a dropdown option ID. Score 0 / missing -> None (leave blank)."""
     if score in (None, ""):
@@ -76,13 +76,13 @@ def score_to_option(score):
         if score <= max_score:
             return option
 
-
+# Setting the dropdown value on a task
 def set_dropdown(task_id, option_id):
     r = requests.post(f"{API}/task/{task_id}/field/{DROPDOWN_FIELD}",
                       headers=H, json={"value": option_id})
     r.raise_for_status()
 
-
+# Syncing the complexity scores to the dropdowns
 def sync_complexity(apply=False):
     """Set each task's Client Complexity dropdown from its Total Complexity Score.
     apply=False is a dry run: prints what would change, writes nothing."""
