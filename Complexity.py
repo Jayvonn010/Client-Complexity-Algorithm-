@@ -25,7 +25,6 @@ MODERATE       = "577a56b6-9c67-4eb0-9497-8fb06f0f9d6a"
 DIFFICULT      = "b849fbbd-7dd3-43e6-9155-1ffe90145a02"
 VERY_DIFFICULT = "d7a5cde1-dd86-44d2-8db0-50844efb902b"
 
-# TODO: placeholder cutoffs - replace with the real ones.
 # (max score, option) - first row whose max >= score wins.
 CUTOFFS = [
     (20,  VERY_EASY),
